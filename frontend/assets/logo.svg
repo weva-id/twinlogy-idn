@@ -1,0 +1,23 @@
+<svg width="240" height="60" viewBox="0 0 240 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle accent -->
+  <circle cx="30" cy="30" r="24" fill="#3182ce" opacity="0.1"/>
+  
+  <!-- Digital twin icon: two connected nodes -->
+  <circle cx="22" cy="30" r="6" fill="#3182ce"/>
+  <circle cx="38" cy="30" r="6" fill="#38a169"/>
+  <line x1="28" y1="30" x2="32" y2="30" stroke="#2d3748" stroke-width="2"/>
+  
+  <!-- Connecting lines to represent network/data flow -->
+  <path d="M22 24 L22 20 L30 16 L38 20 L38 24" stroke="#3182ce" stroke-width="1.5" fill="none" opacity="0.6"/>
+  <path d="M22 36 L22 40 L30 44 L38 40 L38 36" stroke="#38a169" stroke-width="1.5" fill="none" opacity="0.6"/>
+  
+  <!-- Text: TWIN -->
+  <text x="68" y="40" font-family="Arial, sans-serif" font-size="32" font-weight="700" fill="#2d3748">
+    TWIN
+  </text>
+  
+  <!-- Subtitle -->
+  <text x="68" y="52" font-family="Arial, sans-serif" font-size="11" fill="#718096" letter-spacing="1.5">
+    SENSOR PLATFORM
+  </text>
+</svg>
