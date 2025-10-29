@@ -219,12 +219,34 @@ let markersLayer;
 
 function initMap() {
   if (map) return;
-  map = L.map('map').setView([-6.2, 106.816], 12);
+  
+  // Indonesia bounds: Southwest and Northeast corners
+  const indonesiaBounds = [
+    [-11.0, 95.0],  // Southwest (South of Java, West of Sumatra)
+    [6.0, 141.0]     // Northeast (North of Sulawesi, East of Papua)
+  ];
+  
+  map = L.map('map', {
+    center: [-2.5, 118.0], // Center of Indonesia
+    zoom: 5,
+    minZoom: 4,  // Prevent zooming out too far
+    maxZoom: 18,
+    maxBounds: indonesiaBounds, // Restrict panning to Indonesia
+    maxBoundsViscosity: 1.0 // Make bounds "hard" - can't drag outside
+  });
+  
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    attribution: '© OpenStreetMap'
+    attribution: '© OpenStreetMap contributors'
   }).addTo(map);
-  markersLayer = L.layerGroup().addTo(map);
+  
+  markersLayer = L.markerClusterGroup({
+    chunkedLoading: true,
+    spiderfyOnMaxZoom: true,
+    showCoverageOnHover: false,
+    zoomToBoundsOnClick: true
+  });
+  map.addLayer(markersLayer);
 }
 
 function renderMap(points) {

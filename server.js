@@ -4,22 +4,66 @@ const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const cors = require('cors');
+const { body, validationResult } = require('express-validator');
 const { sha256 } = require('./utils/hash');
 const { sendToDag } = require('./services/dag');
 const { sendToWeb3 } = require('./services/web3');
 const { sendToAI } = require('./services/ai');
 
 const app = express();
-app.use(express.json());
 
-// Simple CORS middleware (allow all origins for MVP)
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
+// Security: Helmet - secure HTTP headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://cdn.jsdelivr.net"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://cdn.jsdelivr.net"],
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      connectSrc: ["'self'", "https://nominatim.openstreetmap.org"],
+      fontSrc: ["'self'", "data:"],
+      frameSrc: ["'none'"]
+    }
+  },
+  crossOriginEmbedderPolicy: false
+}));
+
+// Security: CORS - proper configuration
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://twinlogy-idn-production.up.railway.app', 'https://twinlogy-idn.com']
+    : '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  maxAge: 86400 // 24 hours
+};
+app.use(cors(corsOptions));
+
+// Security: Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
 });
+app.use('/ingest', limiter);
+
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 30, // 30 requests per minute
+  message: 'Too many API requests, please slow down.'
+});
+app.use('/data', apiLimiter);
+app.use('/search', apiLimiter);
+
+// Body parser
+app.use(express.json({ limit: '10kb' })); // Limit payload size
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
 // Temporary in-memory store (will be persisted to data.json)
 const sensorData = [];
@@ -47,12 +91,22 @@ function broadcastEvent(record) {
   });
 }
 
-// Endpoint to ingest sensor data
-app.post('/ingest', (req, res) => {
-  const payload = req.body;
-  if (!payload || !payload.timestamp) {
-    return res.status(400).json({ error: 'Invalid payload. Expecting { temperature, humidity, location, timestamp }' });
+// Endpoint to ingest sensor data with validation
+app.post('/ingest', [
+  body('temperature').isFloat({ min: -50, max: 60 }).withMessage('Temperature must be between -50 and 60'),
+  body('humidity').isFloat({ min: 0, max: 100 }).withMessage('Humidity must be between 0 and 100'),
+  body('location.lat').isFloat({ min: -90, max: 90 }).withMessage('Invalid latitude'),
+  body('location.lon').isFloat({ min: -180, max: 180 }).withMessage('Invalid longitude'),
+  body('sensorId').isString().notEmpty().withMessage('Sensor ID is required'),
+  body('timestamp').isISO8601().withMessage('Invalid timestamp format')
+], (req, res) => {
+  // Check validation errors
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: 'Validation failed', details: errors.array() });
   }
+
+  const payload = req.body;
 
   // Compute hash for the payload (deterministic from the payload content)
   const hash = sha256(payload);
