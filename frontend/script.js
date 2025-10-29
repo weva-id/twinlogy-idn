@@ -123,78 +123,110 @@ function render(rows) {
   tbody.innerHTML = visible.map((r, i) => `
     <tr>
       <td>${i+1}</td>
-      <td><code style="font-size:0.85em; background:#f7fafc; padding:2px 6px; border-radius:3px;">${r.sensorId || '-'}</code></td>
-      <td><strong>${r.locationName || '-'}</strong></td>
+      <td>${r.sensorId || 'N/A'}</td>
+      <td>${r.locationName || 'Unknown'}</td>
       <td>${badgeHtmlTemp(r.temperature)} ${r.temperature}°C</td>
       <td>${badgeHtmlHum(r.humidity)} ${r.humidity}%</td>
-      <td style="font-size:0.9em; color:#666;">${r.location?.lat || ''}, ${r.location?.lon || ''}</td>
+      <td>${r.location?.lat || ''}, ${r.location?.lon || ''}</td>
     </tr>
   `).join('');
 }
 
-// Initial fetch and interval
-fetchData();
+// Wait for DOM to be ready before attaching event listeners
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('✅ DOM Ready - Initializing TWINLOGY IDN...');
+  
+  // Initial fetch and interval (wrapped in try-catch to prevent breaking event listeners)
+  try { fetchData(); } catch(e) { console.warn('Initial fetch failed:', e); }
 
-// wire up filter/pagination controls
-document.getElementById('apply-filters')?.addEventListener('click', () => {
-  currentOffset = 0; fetchData();
-});
-document.getElementById('prev-page')?.addEventListener('click', () => {
-  currentOffset = Math.max(0, currentOffset - PAGE_LIMIT); fetchData();
-});
-document.getElementById('next-page')?.addEventListener('click', () => {
-  currentOffset = currentOffset + PAGE_LIMIT; fetchData();
-});
-document.getElementById('export-csv')?.addEventListener('click', () => {
-  const q = buildQuery();
-  window.location = '/export.csv?' + q;
-});
+  // wire up filter/pagination controls
+  document.getElementById('apply-filters')?.addEventListener('click', () => {
+    currentOffset = 0; fetchData();
+  });
+  document.getElementById('prev-page')?.addEventListener('click', () => {
+    currentOffset = Math.max(0, currentOffset - PAGE_LIMIT); fetchData();
+  });
+  document.getElementById('next-page')?.addEventListener('click', () => {
+    currentOffset = currentOffset + PAGE_LIMIT; fetchData();
+  });
+  document.getElementById('export-csv')?.addEventListener('click', () => {
+    const q = buildQuery();
+    window.location = '/export.csv?' + q;
+  });
+  
+  // Polling interval (wrapped to prevent errors)
+  try { setInterval(fetchData, 5000); } catch(e) { console.warn('Interval setup failed:', e); }
 
-setInterval(fetchData, 5000);
-// Setup Server-Sent Events (SSE) for realtime updates. Falls back to polling if SSE not supported.
-if (window.EventSource) {
-  try {
-    const es = new EventSource('/events');
-    es.onmessage = (e) => {
+  // Setup Server-Sent Events (SSE) for realtime updates. Falls back to polling if SSE not supported.
+  if (window.EventSource) {
     try {
-      const record = JSON.parse(e.data);
-        // Prepend the new record to the table
-        const tbody = document.getElementById('data-body');
-                const newRow = document.createElement('tr');
-                newRow.innerHTML = `
-                  <td>1</td>
-                  <td><code style="font-size:0.85em; background:#f7fafc; padding:2px 6px; border-radius:3px;">${record.sensorId || '-'}</code></td>
-                  <td><strong>${record.locationName || '-'}</strong></td>
-                  <td>${badgeHtmlTemp(record.temperature)} ${record.temperature}°C</td>
-                  <td>${badgeHtmlHum(record.humidity)} ${record.humidity}%</td>
-                  <td style="font-size:0.9em; color:#666;">${record.location?.lat || ''}, ${record.location?.lon || ''}</td>
-                `;
-        // Update existing index numbers
-        const rows = tbody.querySelectorAll('tr');
-        rows.forEach((r, idx) => {
-          const firstCell = r.querySelector('td');
-          if (firstCell) firstCell.textContent = idx + 2; // shift by 1
-        });
-        // let stats handle the incoming record (keeps full dataset)
-        try { processIncomingRecord(record); } catch(err2) { /* ignore */ }
-        // Insert new row at top only if it matches active temp filters
-        readTempFilters();
-        if (!activeTempCategoryFilters.length || activeTempCategoryFilters.includes(getTempCategoryKey(record.temperature))) {
-          if (tbody.firstChild) tbody.insertBefore(newRow, tbody.firstChild);
+      const es = new EventSource('/events');
+      es.onmessage = (e) => {
+      try {
+        const record = JSON.parse(e.data);
+          // Prepend the new record to the table
+          const tbody = document.getElementById('data-body');
+                  const newRow = document.createElement('tr');
+                  newRow.innerHTML = `
+                    <td>1</td>
+                    <td>${record.sensorId || 'N/A'}</td>
+                    <td>${record.locationName || 'Unknown'}</td>
+                    <td>${badgeHtmlTemp(record.temperature)} ${record.temperature}°C</td>
+                    <td>${badgeHtmlHum(record.humidity)} ${record.humidity}%</td>
+                    <td>${record.location?.lat || ''}, ${record.location?.lon || ''}</td>
+                  `;
+          // Update existing index numbers
+          const rows = tbody.querySelectorAll('tr');
+          rows.forEach((r, idx) => {
+            const firstCell = r.querySelector('td');
+            if (firstCell) firstCell.textContent = idx + 2; // shift by 1
+          });
+          // let stats handle the incoming record (keeps full dataset)
+          try { processIncomingRecord(record); } catch(err2) { /* ignore */ }
+          // Insert new row at top only if it matches active temp filters
+          readTempFilters();
+          if (!activeTempCategoryFilters.length || activeTempCategoryFilters.includes(getTempCategoryKey(record.temperature))) {
+            if (tbody.firstChild) tbody.insertBefore(newRow, tbody.firstChild);
+          }
+        } catch (err) {
+          console.error('SSE parse error', err);
         }
-      } catch (err) {
-        console.error('SSE parse error', err);
-      }
-    };
-    es.onerror = (err) => { console.warn('SSE connection error', err); };
-  } catch (err) {
-    console.warn('SSE setup failed, falling back to polling', err);
-    setInterval(fetchData, 5000);
+      };
+      es.onerror = (err) => { console.warn('SSE connection error', err); };
+    } catch (err) {
+      console.warn('SSE setup failed, falling back to polling', err);
+    }
   }
-} else {
-  // fallback to polling
-  setInterval(fetchData, 5000);
-}
+  
+  // init default page (wrapped in try-catch)
+  try {
+    if (!location.hash) location.hash = '#dashboard';
+    showPage((location.hash||'#dashboard').replace('#',''));
+  } catch(e) {
+    console.warn('Page initialization failed:', e);
+  }
+  
+  // Initialize location features
+  try {
+    initLocationFeatures();
+  } catch(e) {
+    console.warn('Location features initialization failed:', e);
+  }
+  
+  // Attach temp filter checkboxes
+  try {
+    document.querySelectorAll('.temp-filter').forEach(cb => cb.addEventListener('change', ()=>{
+      fetchData();
+      if ((location.hash||'#dashboard').replace('#','') === 'map') {
+        setTimeout(()=> renderMapFromLastResults(), 200);
+      }
+    }));
+  } catch(e) {
+    console.warn('Temp filter initialization failed:', e);
+  }
+  
+  console.log('✅ TWINLOGY IDN initialized successfully!');
+});
 
 // ----- Simple client-side navigation & map -----
 function showPage(id) {
@@ -209,44 +241,28 @@ window.addEventListener('hashchange', () => {
   if (name === 'map') renderMapFromLastResults();
 });
 
-// init default page
-if (!location.hash) location.hash = '#dashboard';
-showPage((location.hash||'#dashboard').replace('#',''));
-
 // Map variables
 let map;
 let markersLayer;
 
 function initMap() {
   if (map) return;
-  
-  // Indonesia bounds: Southwest and Northeast corners
-  const indonesiaBounds = [
-    [-11.0, 95.0],  // Southwest (South of Java, West of Sumatra)
-    [6.0, 141.0]     // Northeast (North of Sulawesi, East of Papua)
-  ];
-  
-  map = L.map('map', {
-    center: [-2.5, 118.0], // Center of Indonesia
-    zoom: 5,
-    minZoom: 4,  // Prevent zooming out too far
-    maxZoom: 18,
-    maxBounds: indonesiaBounds, // Restrict panning to Indonesia
-    maxBoundsViscosity: 1.0 // Make bounds "hard" - can't drag outside
-  });
-  
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '© OpenStreetMap contributors'
-  }).addTo(map);
-  
-  markersLayer = L.markerClusterGroup({
-    chunkedLoading: true,
-    spiderfyOnMaxZoom: true,
-    showCoverageOnHover: false,
-    zoomToBoundsOnClick: true
-  });
-  map.addLayer(markersLayer);
+  try {
+    if (typeof L === 'undefined') {
+      console.error('Leaflet library not loaded');
+      document.getElementById('map').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#f7fafc;color:#666;padding:20px;text-align:center;">❌ Map library failed to load. Please check your internet connection.</div>';
+      return;
+    }
+    map = L.map('map').setView([-6.2, 106.816], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+    markersLayer = L.layerGroup().addTo(map);
+  } catch (err) {
+    console.error('Map initialization failed:', err);
+    document.getElementById('map').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#f7fafc;color:#666;padding:20px;text-align:center;">❌ Map failed to initialize. Error: ' + err.message + '</div>';
+  }
 }
 
 function renderMap(points) {
@@ -316,20 +332,26 @@ function formatDistance(km) {
   return `${km.toFixed(2)}km`;
 }
 
-// === 1. AUTOCOMPLETE SEARCH ===
+// === LOCATION FEATURES GLOBAL VARIABLES ===
 let autocompleteTimer;
-const locPlaceInput = document.getElementById('loc-place');
-const locSuggestions = document.getElementById('loc-suggestions');
+let locPlaceInput;
+let locSuggestions;
+let compareMode = false;
 
-locPlaceInput?.addEventListener('input', (e) => {
-  clearTimeout(autocompleteTimer);
-  const query = e.target.value.trim();
-  if (query.length < 3) {
-    locSuggestions.style.display = 'none';
-    return;
-  }
-  autocompleteTimer = setTimeout(() => searchAutocomplete(query), 300);
-});
+function initLocationSearch() {
+  locPlaceInput = document.getElementById('loc-place');
+  locSuggestions = document.getElementById('loc-suggestions');
+  
+  locPlaceInput?.addEventListener('input', (e) => {
+    clearTimeout(autocompleteTimer);
+    const query = e.target.value.trim();
+    if (query.length < 3) {
+      locSuggestions.style.display = 'none';
+      return;
+    }
+    autocompleteTimer = setTimeout(() => searchAutocomplete(query), 300);
+  });
+}
 
 async function searchAutocomplete(query) {
   try {
@@ -373,38 +395,43 @@ async function searchAutocomplete(query) {
   }
 }
 
-// Hide suggestions when clicking outside
-document.addEventListener('click', (e) => {
-  if (!locPlaceInput?.contains(e.target) && !locSuggestions?.contains(e.target)) {
-    locSuggestions.style.display = 'none';
-  }
-});
-
-// === 2. DETECT MY LOCATION (Geolocation) ===
-document.getElementById('loc-detect')?.addEventListener('click', () => {
-  const statusEl = document.getElementById('loc-status');
-  if (!navigator.geolocation) {
-    statusEl.textContent = '❌ Geolocation not supported';
-    return;
-  }
+// Hide suggestions when clicking outside (initialized in initLocationFeatures)
+function initLocationFeatures() {
+  // Initialize location search
+  initLocationSearch();
   
-  statusEl.textContent = '📍 Detecting location...';
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      const lat = position.coords.latitude;
-      const lon = position.coords.longitude;
-      statusEl.textContent = '✅ Location detected!';
-      setTimeout(() => statusEl.textContent = '', 3000);
-      selectLocation(lat, lon, 'My Current Location');
-    },
-    (error) => {
-      statusEl.textContent = `❌ Error: ${error.message}`;
-      setTimeout(() => statusEl.textContent = '', 5000);
+  // Hide suggestions when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!locPlaceInput?.contains(e.target) && !locSuggestions?.contains(e.target)) {
+      if (locSuggestions) locSuggestions.style.display = 'none';
     }
-  );
-});
+  });
 
-// === 3. FAVORITES MANAGEMENT ===
+  // === 2. DETECT MY LOCATION (Geolocation) ===
+  document.getElementById('loc-detect')?.addEventListener('click', () => {
+    const statusEl = document.getElementById('loc-status');
+    if (!navigator.geolocation) {
+      statusEl.textContent = '❌ Geolocation not supported';
+      return;
+    }
+    
+    statusEl.textContent = '📍 Detecting location...';
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        statusEl.textContent = '✅ Location detected!';
+        setTimeout(() => statusEl.textContent = '', 3000);
+        selectLocation(lat, lon, 'My Current Location');
+      },
+      (error) => {
+        statusEl.textContent = `❌ Error: ${error.message}`;
+        setTimeout(() => statusEl.textContent = '', 5000);
+      }
+    );
+  });
+
+// === 3. FAVORITES MANAGEMENT (Functions moved outside, listeners inside initLocationFeatures) ===
 function loadFavorites() {
   try {
     return JSON.parse(localStorage.getItem('twinFavorites') || '[]');
@@ -452,36 +479,34 @@ window.deleteFavorite = (idx) => {
   renderFavorites();
 };
 
-document.getElementById('loc-show-favorites')?.addEventListener('click', () => {
-  const panel = document.getElementById('favorites-panel');
-  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-  if (panel.style.display === 'block') renderFavorites();
-});
+  document.getElementById('loc-show-favorites')?.addEventListener('click', () => {
+    const panel = document.getElementById('favorites-panel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    if (panel.style.display === 'block') renderFavorites();
+  });
 
-document.getElementById('loc-save-favorite')?.addEventListener('click', () => {
-  const lat = parseFloat(document.getElementById('loc-centerLat')?.value);
-  const lon = parseFloat(document.getElementById('loc-centerLon')?.value);
-  const radius = parseFloat(document.getElementById('loc-radius')?.value);
-  
-  if (isNaN(lat) || isNaN(lon) || isNaN(radius)) {
-    alert('Please enter valid coordinates and radius first');
-    return;
-  }
-  
-  const name = prompt('Enter a name for this favorite location:', 'Favorite Location');
-  if (!name) return;
-  
-  const favorites = loadFavorites();
-  favorites.push({ name, lat, lon, radius, savedAt: new Date().toISOString() });
-  saveFavorites(favorites);
-  alert('✅ Location saved to favorites!');
-  renderFavorites();
-});
+  document.getElementById('loc-save-favorite')?.addEventListener('click', () => {
+    const lat = parseFloat(document.getElementById('loc-centerLat')?.value);
+    const lon = parseFloat(document.getElementById('loc-centerLon')?.value);
+    const radius = parseFloat(document.getElementById('loc-radius')?.value);
+    
+    if (isNaN(lat) || isNaN(lon) || isNaN(radius)) {
+      alert('Please enter valid coordinates and radius first');
+      return;
+    }
+    
+    const name = prompt('Enter a name for this favorite location:', 'Favorite Location');
+    if (!name) return;
+    
+    const favorites = loadFavorites();
+    favorites.push({ name, lat, lon, radius, savedAt: new Date().toISOString() });
+    saveFavorites(favorites);
+    alert('✅ Location saved to favorites!');
+    renderFavorites();
+  });
 
-// === 4. MULTI-LOCATION COMPARE ===
-let compareMode = false;
-
-document.getElementById('loc-compare-mode')?.addEventListener('click', () => {
+  // === 4. MULTI-LOCATION COMPARE ===
+  document.getElementById('loc-compare-mode')?.addEventListener('click', () => {
   compareMode = !compareMode;
   const panel = document.getElementById('compare-panel');
   const btn = document.getElementById('loc-compare-mode');
@@ -519,7 +544,7 @@ window.removeCompareLocation = (idx) => {
   renderCompareLocations();
 };
 
-document.getElementById('compare-execute')?.addEventListener('click', async () => {
+  document.getElementById('compare-execute')?.addEventListener('click', async () => {
   if (compareLocations.length < 2) {
     alert('Add at least 2 locations to compare');
     return;
@@ -694,15 +719,15 @@ window.showSensorOnMap = (lat, lon) => {
   }, 300);
 };
 
-// Sort by distance checkbox handler
-document.getElementById('loc-sort-distance')?.addEventListener('change', () => {
+  // Sort by distance checkbox handler
+  document.getElementById('loc-sort-distance')?.addEventListener('change', () => {
   if (window.lastResults && window.lastResults.length > 0) {
     renderLocationResults(window.lastResults, currentSearchLocation, compareMode);
   }
 });
 
-// Location Check handlers (UPDATED)
-document.getElementById('loc-check')?.addEventListener('click', async () => {
+  // Location Check handlers (UPDATED)
+  document.getElementById('loc-check')?.addEventListener('click', async () => {
   const lat = document.getElementById('loc-centerLat')?.value;
   const lon = document.getElementById('loc-centerLon')?.value;
   const radius = document.getElementById('loc-radius')?.value;
@@ -719,7 +744,7 @@ document.getElementById('loc-check')?.addEventListener('click', async () => {
   }
 });
 
-document.getElementById('loc-show-map')?.addEventListener('click', () => {
+  document.getElementById('loc-show-map')?.addEventListener('click', () => {
   if (!window.lastResults || !window.lastResults.length) return alert('Lakukan check terlebih dahulu');
   location.hash = '#map';
   setTimeout(()=> renderMap(window.lastResults), 300);
@@ -747,13 +772,16 @@ async function geocodePlace(place) {
   }
 }
 
-document.getElementById('loc-geocode')?.addEventListener('click', async () => {
-  const place = document.getElementById('loc-place')?.value;
-  const info = await geocodePlace(place);
-  if (!info) return;
-  // Use selectLocation for unified handling
-  selectLocation(parseFloat(info.lat), parseFloat(info.lon), info.display_name, 10);
-});
+  document.getElementById('loc-geocode')?.addEventListener('click', async () => {
+    const place = document.getElementById('loc-place')?.value;
+    const info = await geocodePlace(place);
+    if (!info) return;
+    // Use selectLocation for unified handling
+    selectLocation(parseFloat(info.lat), parseFloat(info.lon), info.display_name, 10);
+  });
+  
+  console.log('✅ Location features initialized');
+} // End of initLocationFeatures()
 
 // ----- Stats (Chart.js) -----
 let tempChart, humChart;
@@ -761,21 +789,30 @@ let tempChart, humChart;
 function formatNumber(v, digits=2){ return (Math.round((v||0)*Math.pow(10,digits))/Math.pow(10,digits)).toString(); }
 
 function initStats(){
-  if (typeof Chart === 'undefined') return; // Chart.js not loaded
+  if (typeof Chart === 'undefined') {
+    console.error('Chart.js library not loaded');
+    document.getElementById('stats-area').innerHTML = '<div style="background:#fff3cd;border:1px solid #ffc107;padding:20px;border-radius:8px;text-align:center;color:#856404;">⚠️ Chart.js library failed to load. Please check your internet connection.</div>';
+    return;
+  }
   if (tempChart && humChart) return;
   const tCtx = document.getElementById('tempChart')?.getContext('2d');
   const hCtx = document.getElementById('humChart')?.getContext('2d');
   if (!tCtx || !hCtx) return;
-  tempChart = new Chart(tCtx, {
-    type: 'line',
-    data: { labels: [], datasets: [{ label: 'Temperature (°C)', data: [], borderColor: 'rgb(220,53,69)', backgroundColor: 'rgba(220,53,69,0.12)', tension: 0.2 }] },
-    options: { responsive: true, plugins: { legend: { display: true } }, scales: { x: { display: true }, y: { beginAtZero: false } } }
-  });
-  humChart = new Chart(hCtx, {
-    type: 'line',
-    data: { labels: [], datasets: [{ label: 'Humidity (%)', data: [], borderColor: 'rgb(33,150,243)', backgroundColor: 'rgba(33,150,243,0.12)', tension: 0.2 }] },
-    options: { responsive: true, plugins: { legend: { display: true } }, scales: { x: { display: true }, y: { beginAtZero: true } } }
-  });
+  try {
+    tempChart = new Chart(tCtx, {
+      type: 'line',
+      data: { labels: [], datasets: [{ label: 'Temperature (°C)', data: [], borderColor: 'rgb(220,53,69)', backgroundColor: 'rgba(220,53,69,0.12)', tension: 0.2 }] },
+      options: { responsive: true, plugins: { legend: { display: true } }, scales: { x: { display: true }, y: { beginAtZero: false } } }
+    });
+    humChart = new Chart(hCtx, {
+      type: 'line',
+      data: { labels: [], datasets: [{ label: 'Humidity (%)', data: [], borderColor: 'rgb(33,150,243)', backgroundColor: 'rgba(33,150,243,0.12)', tension: 0.2 }] },
+      options: { responsive: true, plugins: { legend: { display: true } }, scales: { x: { display: true }, y: { beginAtZero: true } } }
+    });
+  } catch (err) {
+    console.error('Chart initialization failed:', err);
+    document.getElementById('stats-area').innerHTML = '<div style="background:#f8d7da;border:1px solid #dc3545;padding:20px;border-radius:8px;text-align:center;color:#721c24;">❌ Failed to initialize charts. Error: ' + err.message + '</div>';
+  }
 }
 
 function updateStatsFromRows(rows){
@@ -848,12 +885,3 @@ window.addEventListener('hashchange', () => {
     fetch('/data?limit=200').then(r=>r.json()).then(d=> updateStatsFromRows(d.results || [])).catch(()=>{});
   }
 });
-
-// attach change handlers to temp-filter checkboxes (if present)
-document.querySelectorAll('.temp-filter').forEach(cb => cb.addEventListener('change', ()=>{
-  // refetch and re-render based on new filters
-  fetchData();
-  if ((location.hash||'#dashboard').replace('#','') === 'map') {
-    setTimeout(()=> renderMapFromLastResults(), 200);
-  }
-}));
